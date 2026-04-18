@@ -1,0 +1,70 @@
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+.python-version
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Build and packaging
+build/
+dist/
+*.egg-info/
+.eggs/
+pip-wheel-metadata/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Logs and runtime files
+logs/
+*.log
+*.pid
+
+# Data files
+data/
+*.csv
+*.parquet
+*.feather
+
+# ML artifacts
+mlruns/
+artifacts/
+models/
+*.pkl
+*.joblib
+*.onnx
+
+# Airflow
+airflow.db
+airflow-webserver.pid
+
+# Local DB files
+*.db
+*.sqlite
+*.sqlite3
+
+# IDE and editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
