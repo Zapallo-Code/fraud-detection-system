@@ -10,7 +10,7 @@ datasources:
     secureJsonData:
       password: ${GF_TIMESCALEDB_PASSWORD}
     jsonData:
-      database: transactions
+      database: ${GF_TIMESCALEDB_DB}
       sslmode: disable
       postgresVersion: 1500
       timescaledb: true
@@ -25,7 +25,7 @@ datasources:
     secureJsonData:
       password: ${GF_POSTGRES_PASSWORD}
     jsonData:
-      database: mlops
+      database: ${GF_POSTGRES_DB}
       sslmode: disable
       postgresVersion: 1500
       timescaledb: false
