@@ -93,7 +93,7 @@ check_timescaledb() {
 }
 
 check_kafka() {
-  docker compose exec -T kafka kafka-topics.sh --bootstrap-server localhost:29092 --list >/dev/null 2>&1
+  docker compose exec -T kafka kafka-topics --bootstrap-server localhost:29092 --list >/dev/null 2>&1
 }
 
 check_mlflow() {
@@ -106,6 +106,10 @@ check_fastapi() {
 
 check_airflow_webserver() {
   curl -fsS http://localhost:8081/health >/dev/null 2>&1
+}
+
+check_airflow_scheduler() {
+  docker compose exec -T airflow-scheduler sh -lc 'airflow jobs check --job-type SchedulerJob --hostname "$HOSTNAME"' >/dev/null 2>&1
 }
 
 check_grafana() {
@@ -147,7 +151,7 @@ create_kafka_topic() {
   local partitions="$2"
   local retention_ms="$3"
 
-  docker compose exec -T kafka kafka-topics.sh \
+  docker compose exec -T kafka kafka-topics \
     --create \
     --if-not-exists \
     --topic "${topic}" \
@@ -244,7 +248,7 @@ print_step "Etapa 2/5 — Construyendo imágenes"
 docker compose build
 
 print_step "Etapa 2/5 — Levantando servicios en segundo plano"
-docker compose up -d
+docker compose up -d --scale airflow-webserver=0 --scale airflow-scheduler=0
 print_success "Stack levantado"
 
 # ============================================================================
@@ -257,19 +261,39 @@ wait_for_service "timescaledb" check_timescaledb 60 3
 wait_for_service "kafka" check_kafka 60 3
 wait_for_service "mlflow" check_mlflow 60 3
 wait_for_service "fastapi" check_fastapi 60 3
-wait_for_service "airflow-webserver" check_airflow_webserver 60 3
 
 # ============================================================================
 # Etapa 4 — Inicializar servicios
 # ============================================================================
 print_step "Etapa 4/5 — Inicializando servicios"
 
+print_step "Airflow: creando base de datos metadata (si no existe)"
+docker compose exec -T postgresql psql \
+  -U "${POSTGRES_USER}" \
+  -d "${POSTGRES_DB}" \
+  -c "SELECT 1 FROM pg_database WHERE datname='airflow_metadata';" | grep -q 1 \
+  || docker compose exec -T postgresql psql \
+    -U "${POSTGRES_USER}" \
+    -d "${POSTGRES_DB}" \
+    -c "CREATE DATABASE airflow_metadata;"
+
 print_step "Airflow: ejecutando migraciones de metadata"
-docker compose exec airflow-webserver airflow db migrate
+docker compose run --rm --no-deps airflow-webserver airflow db migrate
 print_success "Airflow DB migrada"
 
 print_step "Airflow: asegurando usuario administrador"
-ensure_airflow_admin_user
+docker compose run --rm --no-deps airflow-webserver airflow users create \
+  --username "${AIRFLOW_ADMIN_USER}" \
+  --password "${AIRFLOW_ADMIN_PASSWORD}" \
+  --firstname Admin \
+  --lastname User \
+  --role Admin \
+  --email admin@fraudmlops.local 2>/dev/null || true
+
+print_step "Airflow: levantando webserver y scheduler"
+docker compose up -d airflow-webserver airflow-scheduler
+wait_for_service "airflow-webserver" check_airflow_webserver 90 3
+wait_for_service "airflow-scheduler" check_airflow_scheduler 90 3
 
 print_step "Kafka: creando topics base"
 # transactions.raw — particiones: 3, retención: 7 días
