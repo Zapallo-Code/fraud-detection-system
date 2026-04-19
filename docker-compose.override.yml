@@ -1,0 +1,75 @@
+services:
+  fastapi:
+    # Bind-mount API code so edits on host trigger reload without rebuilding the image.
+    volumes:
+      - ./serving:/app/serving
+    # Override runtime command to enable FastAPI hot-reload during development.
+    command:
+      - uvicorn
+      - serving.app.main:app
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --reload
+    environment:
+      # More verbose app logs for local debugging.
+      LOG_LEVEL: debug
+
+  producer:
+    # Bind-mount ingestion code to iterate on the simulator without rebuilds.
+    volumes:
+      - ./ingestion:/app/ingestion
+    environment:
+      # Slow down event generation to keep local runs observable and stable.
+      PRODUCER_TPS: "10"
+      # Enable debug verbosity to inspect publish behavior in development.
+      LOG_LEVEL: debug
+
+  airflow-webserver:
+    # Sync DAGs from host so UI reflects DAG changes immediately.
+    volumes:
+      - ./mlops/airflow/dags:/opt/airflow/dags
+    # Lower memory ceiling for local machines.
+    mem_limit: 1g
+    environment:
+      # Verbose Airflow logs help diagnose DAG parse and runtime issues.
+      AIRFLOW__LOGGING__LOGGING_LEVEL: DEBUG
+
+  airflow-scheduler:
+    # Sync DAGs from host so scheduler picks up changes without rebuilds.
+    volumes:
+      - ./mlops/airflow/dags:/opt/airflow/dags
+    # Lower memory ceiling for local machines.
+    mem_limit: 1g
+    environment:
+      # Verbose scheduler logs for task orchestration debugging.
+      AIRFLOW__LOGGING__LOGGING_LEVEL: DEBUG
+
+  kafka:
+    # Extra host port for local debugging tools (in addition to existing listeners).
+    ports:
+      - "9093:9093"
+    environment:
+      # Add a dedicated debug listener reachable from host-based Kafka clients.
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT,DEBUG:PLAINTEXT
+      KAFKA_LISTENERS: INTERNAL://0.0.0.0:29092,EXTERNAL://0.0.0.0:9092,DEBUG://0.0.0.0:9093
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:29092,EXTERNAL://localhost:9092,DEBUG://localhost:9093
+
+  kafka-ui:
+    # Keep UI explicitly exposed for local observability workflows.
+    ports:
+      - "8080:8080"
+
+  mlflow:
+    environment:
+      # Allow local tracking clients to connect without HTTPS/TLS setup.
+      MLFLOW_TRACKING_INSECURE_TLS: "true"
+
+# PostgreSQL (5432:5432) and TimescaleDB (5433:5432) are already exposed in
+# docker-compose.yml, so they are intentionally not repeated here.
+
+# ------------------------------------------------------------
+# Production mode reminder (without this override file):
+# docker compose -f docker-compose.yml up -d
+# ------------------------------------------------------------
