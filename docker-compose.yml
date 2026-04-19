@@ -62,7 +62,7 @@ services:
       - mlops-net
 
   kafka-ui:
-    image: provectus/kafka-ui:v0.7.2
+    image: provectuslabs/kafka-ui:v0.7.2
     restart: unless-stopped
     depends_on:
       kafka:
@@ -118,7 +118,9 @@ services:
       - mlops-net
 
   mlflow:
-    image: ghcr.io/mlflow/mlflow:v2.17.2
+    build:
+      context: .
+      dockerfile: docker/mlflow/Dockerfile
     restart: unless-stopped
     depends_on:
       postgresql:
