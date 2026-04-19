@@ -1,0 +1,40 @@
+apiVersion: 1
+
+datasources:
+  - name: TimescaleDB
+    uid: timescaledb
+    type: postgres
+    access: proxy
+    url: timescaledb:5432
+    user: ${GF_TIMESCALEDB_USER}
+    secureJsonData:
+      password: ${GF_TIMESCALEDB_PASSWORD}
+    jsonData:
+      database: transactions
+      sslmode: disable
+      postgresVersion: 1500
+      timescaledb: true
+    editable: true
+
+  - name: PostgreSQL
+    uid: postgresql
+    type: postgres
+    access: proxy
+    url: postgresql:5432
+    user: ${GF_POSTGRES_USER}
+    secureJsonData:
+      password: ${GF_POSTGRES_PASSWORD}
+    jsonData:
+      database: mlops
+      sslmode: disable
+      postgresVersion: 1500
+      timescaledb: false
+    editable: true
+
+  - name: Prometheus
+    uid: prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: true
