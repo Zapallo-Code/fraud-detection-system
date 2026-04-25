@@ -163,20 +163,35 @@ create_kafka_topic() {
   print_success "Topic ${topic} listo"
 }
 
-run_sql_migration_if_exists() {
+run_sql_migrations_if_exists() {
   local service="$1"
   local db_user="$2"
   local db_name="$3"
   local label="$4"
-  local migration_path="/migrations/001_initial_schema.sql"
+  local migrations_dir="$5"
+  local migration_files=()
+  local migration_file
 
-  if docker compose exec -T "${service}" sh -c "test -f ${migration_path}"; then
-    print_step "${label}: ejecutando ${migration_path}"
-    docker compose exec -T "${service}" psql -v ON_ERROR_STOP=1 -U "${db_user}" -d "${db_name}" -f "${migration_path}"
-    print_success "${label}: migración aplicada"
-  else
-    print_warning "${label}: no existe ${migration_path}, se omite (esperado en Fase 2)"
+  if [[ ! -d "${migrations_dir}" ]]; then
+    print_warning "${label}: no existe ${migrations_dir}, se omiten migraciones"
+    return 0
   fi
+
+  shopt -s nullglob
+  migration_files=("${migrations_dir}"/*.sql)
+  shopt -u nullglob
+
+  if (( ${#migration_files[@]} == 0 )); then
+    print_warning "${label}: no hay migraciones SQL en ${migrations_dir}, se omite"
+    return 0
+  fi
+
+  for migration_file in "${migration_files[@]}"; do
+    print_step "${label}: ejecutando ${migration_file}"
+    docker compose exec -T "${service}" psql -v ON_ERROR_STOP=1 -U "${db_user}" -d "${db_name}" -f - < "${migration_file}"
+  done
+
+  print_success "${label}: ${#migration_files[@]} migración(es) aplicada(s)"
 }
 
 # ============================================================================
@@ -305,8 +320,8 @@ create_kafka_topic "transactions.predictions" 3 604800000
 # transactions.fraud.alerts — particiones: 1, retención: 30 días
 create_kafka_topic "transactions.fraud.alerts" 1 2592000000
 
-run_sql_migration_if_exists "postgresql" "${POSTGRES_USER}" "${POSTGRES_DB}" "PostgreSQL"
-run_sql_migration_if_exists "timescaledb" "${TIMESCALE_USER}" "${TIMESCALE_DB}" "TimescaleDB"
+run_sql_migrations_if_exists "postgresql" "${POSTGRES_USER}" "${POSTGRES_DB}" "PostgreSQL" "database/postgresql/migrations"
+run_sql_migrations_if_exists "timescaledb" "${TIMESCALE_USER}" "${TIMESCALE_DB}" "TimescaleDB" "database/timescaledb/migrations"
 
 # ============================================================================
 # Etapa 5 — Verificar y mostrar resumen
