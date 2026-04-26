@@ -26,3 +26,7 @@ Desde la raíz del repo ejecutá:
 ```
 
 El script valida prerequisitos (Docker + Compose), crea `.env` desde `.env.example` si no existe, construye imágenes, levanta los servicios y realiza las inicializaciones básicas (Airflow, Kafka y migraciones SQL). Si es la primera ejecución y se crea `.env`, editá las credenciales y volvé a correr el comando.
+
+## Decision de migraciones
+
+En esta fase adoptamos migraciones SQL puras versionadas con un script runner propio. La decision prioriza control total sobre features especificas de PostgreSQL/TimescaleDB y menor complejidad operativa del MVP.
