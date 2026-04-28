@@ -321,6 +321,8 @@ create_kafka_topic "transactions.predictions" 3 604800000
 create_kafka_topic "transactions.fraud.alerts" 1 2592000000
 
 run_sql_migrations_if_exists "postgresql" "${POSTGRES_USER}" "${POSTGRES_DB}" "PostgreSQL" "database/postgresql/migrations"
+run_sql_migrations_if_exists "postgresql" "${POSTGRES_USER}" "${POSTGRES_DB}" "PostgreSQL stored procedures" "database/postgresql/stored_procedures"
+run_sql_migrations_if_exists "postgresql" "${POSTGRES_USER}" "${POSTGRES_DB}" "PostgreSQL triggers" "database/postgresql/triggers"
 run_sql_migrations_if_exists "timescaledb" "${TIMESCALE_USER}" "${TIMESCALE_DB}" "TimescaleDB" "database/timescaledb/migrations"
 
 # ============================================================================
