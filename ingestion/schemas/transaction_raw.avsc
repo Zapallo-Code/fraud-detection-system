@@ -1,0 +1,56 @@
+{
+  "type": "record",
+  "name": "TransactionRaw",
+  "namespace": "fraud_detection.schemas",
+  "doc": "Raw transaction event.",
+  "fields": [
+    {
+      "name": "transaction_id",
+      "type": "string",
+      "doc": "Transaction UUID."
+    },
+    {
+      "name": "user_id",
+      "type": "string",
+      "doc": "User identifier."
+    },
+    {
+      "name": "merchant_id",
+      "type": "string",
+      "doc": "Merchant identifier."
+    },
+    {
+      "name": "merchant_category",
+      "type": "string",
+      "doc": "Merchant category code."
+    },
+    {
+      "name": "amount",
+      "type": "double",
+      "doc": "Transaction amount."
+    },
+    {
+      "name": "country",
+      "type": "string",
+      "doc": "Country code."
+    },
+    {
+      "name": "timestamp",
+      "type": {
+        "type": "long",
+        "logicalType": "timestamp-millis"
+      },
+      "doc": "Event time in epoch millis."
+    },
+    {
+      "name": "device_type",
+      "type": "string",
+      "doc": "Device type."
+    },
+    {
+      "name": "ip_hash",
+      "type": "string",
+      "doc": "Hashed IP address."
+    }
+  ]
+}

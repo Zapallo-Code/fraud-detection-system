@@ -1,0 +1,41 @@
+{
+  "type": "record",
+  "name": "TransactionPrediction",
+  "namespace": "fraud_detection.schemas",
+  "doc": "Model prediction output for a transaction.",
+  "fields": [
+    {
+      "name": "transaction_id",
+      "type": "string",
+      "doc": "Transaction UUID."
+    },
+    {
+      "name": "prediction_score",
+      "type": "double",
+      "doc": "Model prediction score."
+    },
+    {
+      "name": "prediction_label",
+      "type": "boolean",
+      "doc": "Prediction label (fraud or not)."
+    },
+    {
+      "name": "model_version_id",
+      "type": "long",
+      "doc": "Model version identifier."
+    },
+    {
+      "name": "timestamp",
+      "type": {
+        "type": "long",
+        "logicalType": "timestamp-millis"
+      },
+      "doc": "Prediction time in epoch millis."
+    },
+    {
+      "name": "latency_ms",
+      "type": "double",
+      "doc": "Model inference latency in milliseconds."
+    }
+  ]
+}

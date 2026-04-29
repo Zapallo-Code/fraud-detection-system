@@ -1,0 +1,36 @@
+{
+  "type": "record",
+  "name": "FraudAlert",
+  "namespace": "fraud_detection.schemas",
+  "doc": "Fraud alert emitted for a transaction.",
+  "fields": [
+    {
+      "name": "transaction_id",
+      "type": "string",
+      "doc": "Transaction UUID."
+    },
+    {
+      "name": "alert_type",
+      "type": "string",
+      "doc": "Alert type."
+    },
+    {
+      "name": "severity",
+      "type": "string",
+      "doc": "Alert severity."
+    },
+    {
+      "name": "prediction_score",
+      "type": "double",
+      "doc": "Prediction score at alert time."
+    },
+    {
+      "name": "timestamp",
+      "type": {
+        "type": "long",
+        "logicalType": "timestamp-millis"
+      },
+      "doc": "Alert time in epoch millis."
+    }
+  ]
+}
