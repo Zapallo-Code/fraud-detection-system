@@ -245,6 +245,10 @@ required_env_vars=(
   POSTGRES_DB
   TIMESCALE_USER
   TIMESCALE_DB
+  KAFKA_TOPICS_RAW
+  KAFKA_TOPICS_FEATURES
+  KAFKA_TOPICS_PREDICTIONS
+  KAFKA_TOPICS_ALERTS
 )
 
 for var_name in "${required_env_vars[@]}"; do
@@ -312,13 +316,13 @@ wait_for_service "airflow-scheduler" check_airflow_scheduler 90 3
 
 print_step "Kafka: creando topics base"
 # transactions.raw — particiones: 3, retención: 7 días
-create_kafka_topic "transactions.raw" 3 604800000
+create_kafka_topic "${KAFKA_TOPICS_RAW}" 3 604800000
 # transactions.features — particiones: 3, retención: 7 días
-create_kafka_topic "transactions.features" 3 604800000
+create_kafka_topic "${KAFKA_TOPICS_FEATURES}" 3 604800000
 # transactions.predictions — particiones: 3, retención: 7 días
-create_kafka_topic "transactions.predictions" 3 604800000
+create_kafka_topic "${KAFKA_TOPICS_PREDICTIONS}" 3 604800000
 # transactions.fraud.alerts — particiones: 1, retención: 30 días
-create_kafka_topic "transactions.fraud.alerts" 1 2592000000
+create_kafka_topic "${KAFKA_TOPICS_ALERTS}" 1 2592000000
 
 run_sql_migrations_if_exists "postgresql" "${POSTGRES_USER}" "${POSTGRES_DB}" "PostgreSQL" "database/postgresql/migrations"
 run_sql_migrations_if_exists "postgresql" "${POSTGRES_USER}" "${POSTGRES_DB}" "PostgreSQL stored procedures" "database/postgresql/stored_procedures"
