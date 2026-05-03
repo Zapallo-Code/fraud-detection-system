@@ -10,6 +10,7 @@ import threading
 from config import kafka_settings
 
 from .kafka_consumer import TransactionConsumer
+from .windows import SlidingWindowStore
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +45,7 @@ def main() -> None:
         topic=kafka_settings.topics_raw,
         group_id="fraud-feature-engineering",
     )
+    window_store = SlidingWindowStore()
 
     stop_event = threading.Event()
     install_signal_handlers(stop_event)
@@ -57,6 +59,13 @@ def main() -> None:
                 "Consumed transaction %s for user %s",
                 transaction.transaction_id,
                 transaction.user_id,
+            )
+            features = window_store.compute_features(transaction)
+            window_store.add(transaction)
+            logger.debug(
+                "Computed window features for %s: %s",
+                transaction.transaction_id,
+                features,
             )
             consumer.commit()
     finally:
