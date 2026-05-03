@@ -18,4 +18,15 @@ class WindowFeatures:
     seconds_since_last_tx: float
 
 
-__all__ = ["WindowFeatures"]
+@dataclass(frozen=True)
+class HistoricalFeatures:
+    """Feature values derived from historical user behavior."""
+
+    amount_ratio_vs_user_avg: float
+    is_country_new: float
+    distinct_countries_seen: int
+    is_merchant_new: float
+    distinct_merchants_seen: int
+
+
+__all__ = ["HistoricalFeatures", "WindowFeatures"]

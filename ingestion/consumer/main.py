@@ -9,6 +9,7 @@ import threading
 
 from config import kafka_settings
 
+from .historical import HistoricalProfileStore
 from .kafka_consumer import TransactionConsumer
 from .windows import SlidingWindowStore
 
@@ -46,6 +47,7 @@ def main() -> None:
         group_id="fraud-feature-engineering",
     )
     window_store = SlidingWindowStore()
+    historical_store = HistoricalProfileStore()
 
     stop_event = threading.Event()
     install_signal_handlers(stop_event)
@@ -60,12 +62,19 @@ def main() -> None:
                 transaction.transaction_id,
                 transaction.user_id,
             )
-            features = window_store.compute_features(transaction)
+            window_features = window_store.compute_features(transaction)
+            historical_features = historical_store.compute_features(transaction)
             window_store.add(transaction)
+            historical_store.update(transaction)
             logger.debug(
                 "Computed window features for %s: %s",
                 transaction.transaction_id,
-                features,
+                window_features,
+            )
+            logger.debug(
+                "Computed historical features for %s: %s",
+                transaction.transaction_id,
+                historical_features,
             )
             consumer.commit()
     finally:
