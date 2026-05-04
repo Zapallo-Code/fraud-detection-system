@@ -20,6 +20,7 @@ producer = [
 consumer = [
   "confluent-kafka>=2.11.0,<3.0.0",
   "fastavro>=1.12.0,<2.0.0",
+  "psycopg2-binary>=2.9.0,<3.0.0",
   "redis>=5.0.0,<6.0.0",
 ]
 

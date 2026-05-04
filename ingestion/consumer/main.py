@@ -10,13 +10,14 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from config import kafka_settings, redis_settings
+from config import kafka_settings, redis_settings, timescaledb_settings
 
 from .feature_publisher import FeaturePublisher
 from .historical import HistoricalProfileStore, _UserProfile
 from .kafka_consumer import TransactionConsumer
 from .models import TransactionRaw
 from .redis_store import RedisFeatureStore
+from .timescale_writer import TimescaleWriter
 from .windows import SEVEN_DAYS_SECONDS, SlidingWindowStore
 
 logger = logging.getLogger(__name__)
@@ -170,6 +171,13 @@ def main() -> None:
         topic=kafka_settings.topics_features,
         schema_path=str(schema_path),
     )
+    timescale_writer = TimescaleWriter(
+        host=timescaledb_settings.host,
+        port=timescaledb_settings.port,
+        user=timescaledb_settings.user,
+        password=timescaledb_settings.password,
+        db=timescaledb_settings.db,
+    )
     initialized_users: set[str] = set()
 
     stop_event = threading.Event()
@@ -211,6 +219,8 @@ def main() -> None:
                     transactions,
                     historical_payload,
                 )
+            if timescale_writer.is_available:
+                timescale_writer.write(transaction, window_features, historical_features)
             try:
                 feature_publisher.publish(transaction, window_features, historical_features)
             except Exception as exc:
@@ -232,6 +242,7 @@ def main() -> None:
             consumer.commit()
     finally:
         feature_publisher.close()
+        timescale_writer.close()
         redis_store.close()
         consumer.close()
 
