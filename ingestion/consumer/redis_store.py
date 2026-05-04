@@ -1,0 +1,220 @@
+"""Redis-backed feature store for user state."""
+
+from __future__ import annotations
+
+import json
+import logging
+from datetime import UTC, datetime
+from typing import Any
+
+import redis
+
+from .models import TransactionRaw
+
+logger = logging.getLogger(__name__)
+
+WINDOW_KEY_PREFIX = "features:window"
+HISTORICAL_KEY_PREFIX = "features:historical"
+MAX_WINDOW_TRANSACTIONS = 500
+
+
+class RedisFeatureStore:
+    """Persist and retrieve user feature state in Redis."""
+
+    def __init__(
+        self,
+        host: str,
+        port: int,
+        db: int = 0,
+        key_ttl_seconds: int = 7 * 24 * 3600,
+        socket_timeout: float = 0.5,
+    ) -> None:
+        self._key_ttl_seconds = key_ttl_seconds
+        self._client: redis.Redis | None = None
+        self._is_available = False
+
+        try:
+            client = redis.Redis(
+                host=host,
+                port=port,
+                db=db,
+                socket_timeout=socket_timeout,
+                decode_responses=True,
+            )
+            client.ping()
+        except redis.RedisError as exc:
+            logger.warning("Redis unavailable at %s:%s: %s", host, port, exc)
+        else:
+            self._client = client
+            self._is_available = True
+            logger.info("Connected to Redis at %s:%s", host, port)
+
+    @property
+    def is_available(self) -> bool:
+        """Return True when Redis is connected and operational."""
+
+        return self._is_available
+
+    def save_user_state(
+        self,
+        user_id: str,
+        transactions: list[TransactionRaw],
+        historical_profile: dict[str, Any],
+    ) -> None:
+        """Persist the latest user state to Redis."""
+
+        if not self._is_available or self._client is None:
+            logger.debug("Redis unavailable; skipping save for user %s", user_id)
+            return
+
+        window_key = self._window_key(user_id)
+        historical_key = self._historical_key(user_id)
+
+        trimmed = transactions[-MAX_WINDOW_TRANSACTIONS:]
+        window_payload = [self._serialize_transaction(transaction) for transaction in trimmed]
+
+        try:
+            self._client.set(window_key, json.dumps(window_payload), ex=self._key_ttl_seconds)
+            self._client.set(
+                historical_key,
+                json.dumps(historical_profile),
+                ex=self._key_ttl_seconds,
+            )
+        except redis.RedisError as exc:
+            self._handle_redis_error("save", user_id, exc)
+
+    def load_user_window(self, user_id: str) -> list[TransactionRaw]:
+        """Load the cached window transactions for a user."""
+
+        if not self._is_available or self._client is None:
+            logger.debug("Redis unavailable; skipping load for user %s", user_id)
+            return []
+
+        try:
+            payload = self._client.get(self._window_key(user_id))
+        except redis.RedisError as exc:
+            self._handle_redis_error("load window", user_id, exc)
+            return []
+
+        if payload is None:
+            return []
+
+        try:
+            raw_items = json.loads(payload)
+        except json.JSONDecodeError as exc:
+            logger.error("Failed to decode window payload for user %s: %s", user_id, exc)
+            return []
+
+        if not isinstance(raw_items, list):
+            logger.error("Invalid window payload for user %s", user_id)
+            return []
+
+        transactions: list[TransactionRaw] = []
+        for item in raw_items:
+            if not isinstance(item, dict):
+                continue
+            try:
+                transactions.append(self._deserialize_transaction(item))
+            except (KeyError, ValueError) as exc:
+                logger.error("Failed to deserialize transaction for user %s: %s", user_id, exc)
+
+        return transactions
+
+    def load_user_historical(self, user_id: str) -> dict[str, Any] | None:
+        """Load the cached historical profile for a user."""
+
+        if not self._is_available or self._client is None:
+            logger.debug("Redis unavailable; skipping load for user %s", user_id)
+            return None
+
+        try:
+            payload = self._client.get(self._historical_key(user_id))
+        except redis.RedisError as exc:
+            self._handle_redis_error("load historical", user_id, exc)
+            return None
+
+        if payload is None:
+            return None
+
+        try:
+            raw_profile = json.loads(payload)
+        except json.JSONDecodeError as exc:
+            logger.error("Failed to decode historical payload for user %s: %s", user_id, exc)
+            return None
+
+        if not isinstance(raw_profile, dict):
+            logger.error("Invalid historical payload for user %s", user_id)
+            return None
+
+        return raw_profile
+
+    def close(self) -> None:
+        """Close the Redis connection."""
+
+        if self._client is None:
+            return
+        try:
+            self._client.close()
+        except redis.RedisError as exc:
+            logger.error("Failed to close Redis client: %s", exc)
+
+    @staticmethod
+    def _window_key(user_id: str) -> str:
+        return f"{WINDOW_KEY_PREFIX}:{user_id}"
+
+    @staticmethod
+    def _historical_key(user_id: str) -> str:
+        return f"{HISTORICAL_KEY_PREFIX}:{user_id}"
+
+    @staticmethod
+    def _serialize_transaction(transaction: TransactionRaw) -> dict[str, Any]:
+        timestamp = transaction.timestamp
+        if timestamp.tzinfo is None:
+            timestamp = timestamp.replace(tzinfo=UTC)
+        else:
+            timestamp = timestamp.astimezone(UTC)
+
+        return {
+            "transaction_id": transaction.transaction_id,
+            "user_id": transaction.user_id,
+            "merchant_id": transaction.merchant_id,
+            "merchant_category": transaction.merchant_category,
+            "amount": float(transaction.amount),
+            "country": transaction.country,
+            "timestamp": timestamp.isoformat(),
+            "device_type": transaction.device_type,
+            "ip_hash": transaction.ip_hash,
+        }
+
+    @staticmethod
+    def _deserialize_transaction(payload: dict[str, Any]) -> TransactionRaw:
+        return TransactionRaw(
+            transaction_id=str(payload["transaction_id"]),
+            user_id=str(payload["user_id"]),
+            merchant_id=str(payload["merchant_id"]),
+            merchant_category=str(payload["merchant_category"]),
+            amount=float(payload["amount"]),
+            country=str(payload["country"]),
+            timestamp=RedisFeatureStore._parse_timestamp(payload["timestamp"]),
+            device_type=str(payload["device_type"]),
+            ip_hash=str(payload["ip_hash"]),
+        )
+
+    @staticmethod
+    def _parse_timestamp(value: Any) -> datetime:
+        if not isinstance(value, str):
+            raise ValueError("Timestamp must be a string")
+        text = value
+        if text.endswith("Z"):
+            text = f"{text[:-1]}+00:00"
+        timestamp = datetime.fromisoformat(text)
+        if timestamp.tzinfo is None:
+            timestamp = timestamp.replace(tzinfo=UTC)
+        return timestamp.astimezone(UTC)
+
+    def _handle_redis_error(self, action: str, user_id: str, exc: Exception) -> None:
+        logger.error("Redis %s failed for user %s: %s", action, user_id, exc)
+        self._is_available = False
+
+
+__all__ = ["RedisFeatureStore"]
