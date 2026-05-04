@@ -7,10 +7,12 @@ import os
 import signal
 import threading
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 from config import kafka_settings, redis_settings
 
+from .feature_publisher import FeaturePublisher
 from .historical import HistoricalProfileStore, _UserProfile
 from .kafka_consumer import TransactionConsumer
 from .models import TransactionRaw
@@ -151,6 +153,7 @@ def main() -> None:
     configure_logging()
 
     window_max_seconds = SEVEN_DAYS_SECONDS
+    schema_path = Path(__file__).resolve().parents[1] / "schemas" / "transaction_features.avsc"
     consumer = TransactionConsumer(
         broker_url=kafka_settings.broker_url,
         topic=kafka_settings.topics_raw,
@@ -161,6 +164,11 @@ def main() -> None:
     redis_store = RedisFeatureStore(
         host=redis_settings.host,
         port=redis_settings.port,
+    )
+    feature_publisher = FeaturePublisher(
+        broker_url=kafka_settings.broker_url,
+        topic=kafka_settings.topics_features,
+        schema_path=str(schema_path),
     )
     initialized_users: set[str] = set()
 
@@ -203,6 +211,14 @@ def main() -> None:
                     transactions,
                     historical_payload,
                 )
+            try:
+                feature_publisher.publish(transaction, window_features, historical_features)
+            except Exception as exc:
+                logger.error(
+                    "Failed to publish features for %s: %s",
+                    transaction.transaction_id,
+                    exc,
+                )
             logger.debug(
                 "Computed window features for %s: %s",
                 transaction.transaction_id,
@@ -215,6 +231,7 @@ def main() -> None:
             )
             consumer.commit()
     finally:
+        feature_publisher.close()
         redis_store.close()
         consumer.close()
 
