@@ -227,10 +227,14 @@ if ! docker compose version >/dev/null 2>&1; then
 fi
 
 compose_version="$(docker compose version --short 2>/dev/null || true)"
-if [[ -n "${compose_version}" && "${compose_version}" != v2* && "${compose_version}" != 2* ]]; then
-  print_error "Se detectó una versión no compatible de Docker Compose: ${compose_version}"
-  print_error "Se requiere Docker Compose v2 mediante 'docker compose'."
-  exit 1
+if [[ -n "${compose_version}" ]]; then
+  compose_major="${compose_version#v}"
+  compose_major="${compose_major%%.*}"
+  if ! [[ "${compose_major}" =~ ^[0-9]+$ ]] || (( compose_major < 2 )); then
+    print_error "Se detectó una versión no compatible de Docker Compose: ${compose_version}"
+    print_error "Se requiere Docker Compose v2 o superior mediante 'docker compose'."
+    exit 1
+  fi
 fi
 
 if [[ ! -f .env ]]; then
