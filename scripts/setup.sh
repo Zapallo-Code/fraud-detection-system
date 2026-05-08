@@ -194,10 +194,24 @@ run_sql_migrations_if_exists() {
   print_success "${label}: ${#migration_files[@]} migración(es) aplicada(s)"
 }
 
+print_step "Contexto del setup"
+printf "Este script prepara el entorno local con Docker Compose y es idempotente.\n"
+printf "Hace lo siguiente:\n"
+printf "  - valida Docker/Compose y crea .env desde .env.example si falta\n"
+printf "  - construye imágenes locales (FastAPI, Airflow, MLflow,\n"
+printf "    Kafka producer, Grafana)\n"
+printf "  - levanta servicios base y espera healthchecks\n"
+printf "  - inicializa Airflow, topics Kafka y migraciones SQL\n"
+printf "  - verifica salud y muestra URLs/comandos útiles\n"
+printf "\nNo hace por diseño:\n"
+printf "  - no ejecuta notebooks ni pipelines locales de Python\n"
+printf "  - no genera datos históricos salvo que lo ejecutes manualmente\n"
+printf "\nNota: docker-compose.override.yml se aplica automáticamente para dev.\n"
+
 # ============================================================================
 # Etapa 1 — Verificar prerequisitos
 # ============================================================================
-print_step "Etapa 1/5 — Verificando prerequisitos"
+print_step "Etapa 1/5 — Verificando prerequisitos (Docker/Compose + .env)"
 
 require_command docker
 require_command curl
@@ -263,17 +277,17 @@ print_success "Prerequisitos validados"
 # ============================================================================
 # Etapa 2 — Construir y levantar el stack
 # ============================================================================
-print_step "Etapa 2/5 — Construyendo imágenes"
+print_step "Etapa 2/5 — Construyendo imágenes locales"
 docker compose build
 
-print_step "Etapa 2/5 — Levantando servicios en segundo plano"
+print_step "Etapa 2/5 — Levantando servicios base (Airflow inicia luego)"
 docker compose up -d --scale airflow-webserver=0 --scale airflow-scheduler=0
 print_success "Stack levantado"
 
 # ============================================================================
 # Etapa 3 — Esperar que los servicios estén healthy
 # ============================================================================
-print_step "Etapa 3/5 — Esperando servicios healthy"
+print_step "Etapa 3/5 — Esperando healthchecks de servicios base"
 
 wait_for_service "postgresql" check_postgresql 60 3
 wait_for_service "timescaledb" check_timescaledb 60 3
@@ -284,7 +298,7 @@ wait_for_service "fastapi" check_fastapi 60 3
 # ============================================================================
 # Etapa 4 — Inicializar servicios
 # ============================================================================
-print_step "Etapa 4/5 — Inicializando servicios"
+print_step "Etapa 4/5 — Inicializando Airflow, Kafka y migraciones SQL"
 
 print_step "Airflow: creando base de datos metadata (si no existe)"
 docker compose exec -T postgresql psql \
@@ -332,7 +346,7 @@ run_sql_migrations_if_exists "timescaledb" "${TIMESCALE_USER}" "${TIMESCALE_DB}"
 # ============================================================================
 # Etapa 5 — Verificar y mostrar resumen
 # ============================================================================
-print_step "Etapa 5/5 — Verificación final"
+print_step "Etapa 5/5 — Verificación final y resumen"
 
 wait_for_service "postgresql" check_postgresql 30 3
 wait_for_service "timescaledb" check_timescaledb 30 3
@@ -358,3 +372,15 @@ printf "\nComandos útiles:\n"
 printf "  Ver logs:       docker compose logs -f [servicio]\n"
 printf "  Detener stack:  docker compose down\n"
 printf "  Producción:     docker compose -f docker-compose.yml up -d\n"
+printf "  Seed data:      ./scripts/seed-timescale.sh\n"
+
+printf "\nSimulaciones (producer):\n"
+printf "  uv run python -m ingestion.producer.main --mode live --tps 10 --fraud-rate 0.02\n"
+printf "  uv run python -m ingestion.producer.main --mode scenario --scenario high_frequency --tps 5\n"
+printf "  uv run python -m ingestion.producer.main --mode replay --replay /ruta/al/archivo.csv\n"
+
+
+printf "\nNotebooks (Jupyter):\n"
+printf "  1) Instalar deps: uv sync --group notebooks\n"
+printf "  2) Iniciar:       uv run jupyter lab\n"
+printf "  3) Abrir:         model/notebooks/eda_base.ipynb\n"
