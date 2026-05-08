@@ -11,8 +11,6 @@ from typing import Any
 from confluent_kafka import KafkaException, Producer
 from fastavro import parse_schema, schemaless_writer
 
-from config import kafka_settings
-
 from .models import Transaction
 
 logger = logging.getLogger(__name__)
@@ -149,4 +147,4 @@ class TransactionProducer:
         )
 
 
-__all__ = ["TransactionProducer", "kafka_settings"]
+__all__ = ["TransactionProducer"]

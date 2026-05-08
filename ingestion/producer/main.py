@@ -6,6 +6,7 @@ import argparse
 import csv
 import itertools
 import logging
+import os
 import random
 import signal
 import time
@@ -15,8 +16,6 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from uuid import UUID
-
-from config import kafka_settings
 
 from .generator import FraudPatternGenerator, LegitimateTransactionGenerator, UserProfile
 from .kafka_producer import TransactionProducer
@@ -425,9 +424,9 @@ def main() -> None:
     install_signal_handlers(stop_event)
 
     producer = TransactionProducer(
-        broker_url=kafka_settings.broker_url,
-        schema_registry_url=kafka_settings.schema_registry_url,
-        topic=kafka_settings.topics_raw,
+        broker_url=os.getenv("KAFKA_BROKER_URL", "kafka:29092"),
+        schema_registry_url=os.getenv("KAFKA_SCHEMA_REGISTRY_URL", "http://schema-registry:8081"),
+        topic=os.getenv("KAFKA_TOPICS_RAW", "transactions.raw"),
         schema_path=str(DEFAULT_SCHEMA_PATH),
     )
 

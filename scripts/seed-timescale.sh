@@ -109,11 +109,11 @@ docker compose run --rm \
   --entrypoint python \
   -v "$(pwd)":/app \
   -w /app \
-  -e TIMESCALEDB_HOST=timescaledb \
-  -e TIMESCALEDB_PORT=5432 \
-  -e TIMESCALEDB_USER="${TIMESCALE_USER}" \
-  -e TIMESCALEDB_PASSWORD="${TIMESCALE_PASSWORD}" \
-  -e TIMESCALEDB_DB="${TIMESCALE_DB}" \
+  -e TIMESCALE_HOST=timescaledb \
+  -e TIMESCALE_PORT=5432 \
+  -e TIMESCALE_USER="${TIMESCALE_USER}" \
+  -e TIMESCALE_PASSWORD="${TIMESCALE_PASSWORD}" \
+  -e TIMESCALE_DB="${TIMESCALE_DB}" \
   airflow-webserver \
   database/timescaledb/seeds/seed_transactions.py \
   --count "${count}" \

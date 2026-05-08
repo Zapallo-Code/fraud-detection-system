@@ -1,7 +1,5 @@
 #!/usr/bin/env python3
 import argparse
-import hashlib
-import math
 import os
 import random
 import uuid
@@ -11,42 +9,21 @@ from datetime import UTC, datetime, timedelta
 import psycopg2
 from psycopg2.extras import execute_values
 
-MERCHANT_CATEGORIES = [
-    "retail",
-    "food",
-    "travel",
-    "entertainment",
-    "gas_station",
-    "online",
-    "pharmacy",
-]
-
-CATEGORY_MEDIANS = {
-    "pharmacy": 30.0,
-    "travel": 500.0,
-    "retail": 80.0,
-    "food": 25.0,
-    "entertainment": 60.0,
-    "gas_station": 40.0,
-    "online": 120.0,
-}
-
-CATEGORY_SIGMA = {
-    "pharmacy": 0.4,
-    "travel": 0.6,
-    "retail": 0.5,
-    "food": 0.4,
-    "entertainment": 0.5,
-    "gas_station": 0.4,
-    "online": 0.6,
-}
-
-MAIN_COUNTRIES = ["AR", "BR", "US", "MX"]
-MAIN_WEIGHTS = [0.70, 0.10, 0.08, 0.05]
-OTHER_COUNTRIES = ["CL", "CO", "PE", "UY", "PY", "BO", "ES", "UK", "FR", "DE"]
-
-DEVICE_TYPES = ["mobile", "web", "pos"]
-DEVICE_WEIGHTS = [0.6, 0.3, 0.1]
+from ingestion.producer.generator import (
+    CATEGORY_MEDIANS,
+    CATEGORY_SIGMA,
+    DEVICE_TYPES,
+    DEVICE_WEIGHTS,
+    build_country_weights,
+    build_hour_weights,
+    build_merchants,
+    choose_country,
+    choose_device,
+    choose_merchant,
+    generate_amount,
+    generate_ip_hash,
+    generate_timestamp,
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -60,53 +37,12 @@ def parse_args() -> argparse.Namespace:
 
 def get_db_config() -> dict:
     return {
-        "host": os.getenv("TIMESCALEDB_HOST", "localhost"),
-        "port": int(os.getenv("TIMESCALEDB_PORT", "5432")),
-        "user": os.getenv("TIMESCALEDB_USER", "postgres"),
-        "password": os.getenv("TIMESCALEDB_PASSWORD", "postgres"),
-        "dbname": os.getenv("TIMESCALEDB_DB", "timescaledb"),
+        "host": os.getenv("TIMESCALE_HOST", "localhost"),
+        "port": int(os.getenv("TIMESCALE_PORT", "5432")),
+        "user": os.getenv("TIMESCALE_USER", "postgres"),
+        "password": os.getenv("TIMESCALE_PASSWORD", "postgres"),
+        "dbname": os.getenv("TIMESCALE_DB", "timescaledb"),
     }
-
-
-def build_country_weights() -> tuple[list[str], list[float]]:
-    other_weight = (1.0 - sum(MAIN_WEIGHTS)) / len(OTHER_COUNTRIES)
-    countries = MAIN_COUNTRIES + OTHER_COUNTRIES
-    weights = MAIN_WEIGHTS + [other_weight] * len(OTHER_COUNTRIES)
-    return countries, weights
-
-
-def build_hour_weights() -> list[float]:
-    weights = []
-    for hour in range(24):
-        if 0 <= hour <= 6:
-            weights.append(0.5)
-        elif 7 <= hour <= 8:
-            weights.append(1.0)
-        elif 9 <= hour <= 11:
-            weights.append(3.0)
-        elif 12 <= hour <= 14:
-            weights.append(5.0)
-        elif 15 <= hour <= 17:
-            weights.append(4.0)
-        elif 18 <= hour <= 20:
-            weights.append(5.0)
-        elif 21 <= hour <= 22:
-            weights.append(3.0)
-        else:
-            weights.append(1.0)
-    return weights
-
-
-def build_merchants(rng: random.Random, count: int) -> tuple[list[str], dict[str, str]]:
-    merchant_ids = []
-    merchant_categories = {}
-    for idx in range(1, count + 1):
-        merchant_id = f"merchant_{idx:04d}"
-        category = MERCHANT_CATEGORIES[(idx - 1) % len(MERCHANT_CATEGORIES)]
-        merchant_ids.append(merchant_id)
-        merchant_categories[merchant_id] = category
-    rng.shuffle(merchant_ids)
-    return merchant_ids, merchant_categories
 
 
 def build_users(
@@ -118,71 +54,17 @@ def build_users(
 ) -> list[dict]:
     users = []
     for idx in range(1, count + 1):
-        user_id = f"user_{idx:04d}"
-        home_country = rng.choices(countries, weights=country_weights, k=1)[0]
-        preferred_device = rng.choices(DEVICE_TYPES, weights=DEVICE_WEIGHTS, k=1)[0]
-        spend_multiplier = max(0.4, min(2.5, rng.lognormvariate(0.0, 0.4)))
-        activity_weight = max(0.2, min(3.0, rng.lognormvariate(0.0, 0.6)))
-        frequent_merchants = rng.sample(merchant_ids, k=5)
         users.append(
             {
-                "user_id": user_id,
-                "home_country": home_country,
-                "preferred_device": preferred_device,
-                "spend_multiplier": spend_multiplier,
-                "activity_weight": activity_weight,
-                "frequent_merchants": frequent_merchants,
+                "user_id": f"user_{idx:04d}",
+                "home_country": rng.choices(countries, weights=country_weights, k=1)[0],
+                "preferred_device": rng.choices(DEVICE_TYPES, weights=DEVICE_WEIGHTS, k=1)[0],
+                "spend_multiplier": max(0.4, min(2.5, rng.lognormvariate(0.0, 0.4))),
+                "activity_weight": max(0.2, min(3.0, rng.lognormvariate(0.0, 0.6))),
+                "frequent_merchants": rng.sample(merchant_ids, k=5),
             }
         )
     return users
-
-
-def generate_timestamp(rng: random.Random, now: datetime, hour_weights: list[float]) -> datetime:
-    day_offset = rng.randint(0, 29)
-    base = now - timedelta(days=day_offset)
-    hour = rng.choices(range(24), weights=hour_weights, k=1)[0]
-    minute = rng.randint(0, 59)
-    second = rng.randint(0, 59)
-    return base.replace(hour=hour, minute=minute, second=second, microsecond=0)
-
-
-def generate_ip_hash(rng: random.Random) -> str:
-    ip = ".".join(str(rng.randint(1, 255)) for _ in range(4))
-    return hashlib.sha256(ip.encode("utf-8")).hexdigest()
-
-
-def generate_amount(rng: random.Random, category: str, spend_multiplier: float) -> float:
-    median = CATEGORY_MEDIANS.get(category, 50.0)
-    sigma = CATEGORY_SIGMA.get(category, 0.5)
-    mu = math.log(median)
-    amount = rng.lognormvariate(mu, sigma) * spend_multiplier
-    amount = max(amount, 1.0)
-    return round(amount, 2)
-
-
-def choose_country(
-    rng: random.Random,
-    home_country: str,
-    countries: list[str],
-    country_weights: list[float],
-) -> str:
-    if rng.random() < 0.85:
-        return home_country
-    return rng.choices(countries, weights=country_weights, k=1)[0]
-
-
-def choose_device(rng: random.Random, preferred_device: str) -> str:
-    if rng.random() < 0.8:
-        return preferred_device
-    return rng.choice([d for d in DEVICE_TYPES if d != preferred_device])
-
-
-def choose_merchant(
-    rng: random.Random, frequent_merchants: list[str], merchant_ids: list[str]
-) -> str:
-    if rng.random() < 0.8:
-        return rng.choice(frequent_merchants)
-    return rng.choice(merchant_ids)
 
 
 def generate_transactions(
@@ -197,26 +79,24 @@ def generate_transactions(
     transaction_namespace: uuid.UUID,
 ) -> list[dict]:
     now = datetime.now(UTC)
-    user_weights = [user["activity_weight"] for user in users]
+    user_weights = [u["activity_weight"] for u in users]
     transactions = []
     for idx in range(count):
         user = rng.choices(users, weights=user_weights, k=1)[0]
         merchant_id = choose_merchant(rng, user["frequent_merchants"], merchant_ids)
         category = merchant_categories[merchant_id]
-        amount = generate_amount(rng, category, user["spend_multiplier"])
-        country = choose_country(rng, user["home_country"], countries, country_weights)
-        device_type = choose_device(rng, user["preferred_device"])
-        timestamp = generate_timestamp(rng, now, hour_weights)
         transactions.append(
             {
                 "transaction_id": uuid.uuid5(transaction_namespace, f"transaction-{idx}"),
                 "user_id": user["user_id"],
                 "merchant_id": merchant_id,
                 "merchant_category": category,
-                "amount": amount,
-                "country": country,
-                "timestamp": timestamp,
-                "device_type": device_type,
+                "amount": generate_amount(
+                    rng, category, user["spend_multiplier"], CATEGORY_MEDIANS, CATEGORY_SIGMA
+                ),
+                "country": choose_country(rng, user["home_country"], countries, country_weights),
+                "timestamp": generate_timestamp(rng, now, hour_weights, days_back=30),
+                "device_type": choose_device(rng, user["preferred_device"]),
                 "ip_hash": generate_ip_hash(rng),
                 "is_fraud": False,
                 "model_score": None,
@@ -227,30 +107,30 @@ def generate_transactions(
 
 
 def compute_user_average_amount(transactions: list[dict]) -> dict[str, float]:
-    totals = defaultdict(float)
-    counts = defaultdict(int)
+    totals: defaultdict[str, float] = defaultdict(float)
+    counts: defaultdict[str, int] = defaultdict(int)
     for tx in transactions:
         totals[tx["user_id"]] += float(tx["amount"])
         counts[tx["user_id"]] += 1
-    return {user_id: totals[user_id] / counts[user_id] for user_id in totals}
+    return {uid: totals[uid] / counts[uid] for uid in totals}
 
 
 def compute_user_seen_merchants(transactions: list[dict]) -> dict[str, set[str]]:
-    seen = defaultdict(set)
+    seen: defaultdict[str, set] = defaultdict(set)
     for tx in transactions:
         seen[tx["user_id"]].add(tx["merchant_id"])
-    return seen
+    return dict(seen)
 
 
 def compute_user_home_countries(users: list[dict]) -> dict[str, str]:
-    return {user["user_id"]: user["home_country"] for user in users}
+    return {u["user_id"]: u["home_country"] for u in users}
 
 
 def compute_user_indices(transactions: list[dict]) -> dict[str, list[int]]:
-    user_indices = defaultdict(list)
+    indices: defaultdict[str, list] = defaultdict(list)
     for idx, tx in enumerate(transactions):
-        user_indices[tx["user_id"]].append(idx)
-    return user_indices
+        indices[tx["user_id"]].append(idx)
+    return dict(indices)
 
 
 def apply_amount_anomaly(
@@ -266,8 +146,7 @@ def apply_amount_anomaly(
     for idx in chosen:
         tx = transactions[idx]
         avg = user_avg_amount.get(tx["user_id"], float(tx["amount"]))
-        multiplier = rng.uniform(5.0, 10.0)
-        tx["amount"] = round(max(avg * multiplier, float(tx["amount"])), 2)
+        tx["amount"] = round(max(avg * rng.uniform(5.0, 10.0), float(tx["amount"])), 2)
         tx["is_fraud"] = True
         available_indices.remove(idx)
     return len(chosen)
@@ -289,12 +168,12 @@ def apply_unusual_country(
     while applied < count and attempts < max_attempts and available_indices:
         idx = rng.choice(list(available_indices))
         tx = transactions[idx]
-        home_country = user_home_countries.get(tx["user_id"], tx["country"])
-        different_countries = [c for c in countries if c != home_country]
-        if not different_countries:
+        home = user_home_countries.get(tx["user_id"], tx["country"])
+        different = [c for c in countries if c != home]
+        if not different:
             attempts += 1
             continue
-        tx["country"] = rng.choice(different_countries)
+        tx["country"] = rng.choice(different)
         tx["is_fraud"] = True
         available_indices.remove(idx)
         applied += 1
@@ -314,26 +193,21 @@ def apply_high_frequency(
     remaining = count
     users = list(user_indices.keys())
     while remaining > 0:
-        candidates = []
-        for user_id in users:
-            available_user_indices = [
-                idx for idx in user_indices[user_id] if idx in available_indices
-            ]
-            if len(available_user_indices) >= 5:
-                candidates.append((user_id, available_user_indices))
+        candidates = [
+            (uid, [i for i in user_indices[uid] if i in available_indices]) for uid in users
+        ]
+        candidates = [(uid, idxs) for uid, idxs in candidates if len(idxs) >= 5]
         if not candidates:
             break
-        user_id, available_user_indices = rng.choice(candidates)
-        burst_target = rng.randint(5, 8)
-        burst_size = min(remaining, burst_target, len(available_user_indices))
+        uid, user_idxs = rng.choice(candidates)
+        burst_size = min(remaining, rng.randint(5, 8), len(user_idxs))
         if burst_size < 5:
             break
-        chosen = rng.sample(available_user_indices, k=burst_size)
+        chosen = rng.sample(user_idxs, k=burst_size)
         base_time = transactions[chosen[0]]["timestamp"]
         for idx in chosen:
             tx = transactions[idx]
-            delta = timedelta(minutes=rng.randint(0, 29), seconds=rng.randint(0, 59))
-            new_time = base_time + delta
+            new_time = base_time + timedelta(minutes=rng.randint(0, 29), seconds=rng.randint(0, 59))
             if new_time > now:
                 new_time = now - timedelta(minutes=rng.randint(0, 29))
             tx["timestamp"] = new_time
@@ -361,16 +235,16 @@ def apply_unknown_merchant_high_amount(
     attempts = 0
     max_attempts = count * 50
     while remaining > 0 and attempts < max_attempts:
-        user_id = rng.choice(users)
-        available_user_indices = [idx for idx in user_indices[user_id] if idx in available_indices]
-        if not available_user_indices:
+        uid = rng.choice(users)
+        user_idxs = [i for i in user_indices[uid] if i in available_indices]
+        if not user_idxs:
             attempts += 1
             continue
-        unseen = list(all_merchants - user_seen_merchants[user_id])
+        unseen = list(all_merchants - user_seen_merchants[uid])
         if not unseen:
             attempts += 1
             continue
-        idx = rng.choice(available_user_indices)
+        idx = rng.choice(user_idxs)
         merchant_id = rng.choice(unseen)
         tx = transactions[idx]
         tx["merchant_id"] = merchant_id
@@ -378,7 +252,7 @@ def apply_unknown_merchant_high_amount(
         tx["amount"] = round(rng.uniform(300.0, 1200.0), 2)
         tx["is_fraud"] = True
         available_indices.remove(idx)
-        user_seen_merchants[user_id].add(merchant_id)
+        user_seen_merchants[uid].add(merchant_id)
         remaining -= 1
     return count - remaining
 
@@ -433,9 +307,8 @@ def print_summary(transactions: list[dict]) -> None:
     print(f"Total inserted: {total}")
     print(f"Total fraud: {fraud_total}")
     print("Country distribution:")
-    for country, count in countries.most_common():
-        pct = (count / total) * 100
-        print(f"  {country}: {count} ({pct:.1f}%)")
+    for country, cnt in countries.most_common():
+        print(f"  {country}: {cnt} ({cnt / total * 100:.1f}%)")
     print(f"Date range: {min_ts.isoformat()} to {max_ts.isoformat()}")
 
 
@@ -455,7 +328,6 @@ def main() -> None:
     rng = random.Random(args.seed)
     countries, country_weights = build_country_weights()
     hour_weights = build_hour_weights()
-
     merchant_ids, merchant_categories = build_merchants(rng, 50)
     users = build_users(rng, 200, merchant_ids, countries, country_weights)
     transaction_namespace = uuid.uuid5(uuid.NAMESPACE_DNS, f"seed-{args.seed}")
@@ -477,43 +349,25 @@ def main() -> None:
     user_home_countries = compute_user_home_countries(users)
     user_indices = compute_user_indices(transactions)
 
-    fraud_total = int(round(args.count * args.fraud_rate))
-    fraud_total = min(max(fraud_total, 0), args.count)
+    fraud_total = min(max(int(round(args.count * args.fraud_rate)), 0), args.count)
     base = fraud_total // 4
     pattern_counts = [base, base, base, base]
-    for idx in range(fraud_total - base * 4):
-        pattern_counts[idx] += 1
+    for i in range(fraud_total - base * 4):
+        pattern_counts[i] += 1
 
     available_indices = set(range(len(transactions)))
     now = datetime.now(UTC)
 
-    applied_counts = []
-    applied_counts.append(
+    applied = [
         apply_amount_anomaly(
             rng, transactions, available_indices, user_avg_amount, pattern_counts[0]
-        )
-    )
-    applied_counts.append(
+        ),
         apply_unusual_country(
-            rng,
-            transactions,
-            available_indices,
-            user_home_countries,
-            countries,
-            pattern_counts[1],
-        )
-    )
-    applied_counts.append(
+            rng, transactions, available_indices, user_home_countries, countries, pattern_counts[1]
+        ),
         apply_high_frequency(
-            rng,
-            transactions,
-            available_indices,
-            user_indices,
-            now,
-            pattern_counts[2],
-        )
-    )
-    applied_counts.append(
+            rng, transactions, available_indices, user_indices, now, pattern_counts[2]
+        ),
         apply_unknown_merchant_high_amount(
             rng,
             transactions,
@@ -523,15 +377,14 @@ def main() -> None:
             merchant_ids,
             merchant_categories,
             pattern_counts[3],
-        )
-    )
+        ),
+    ]
 
-    remaining_fraud = fraud_total - sum(applied_counts)
-    if remaining_fraud > 0:
-        apply_amount_anomaly(rng, transactions, available_indices, user_avg_amount, remaining_fraud)
+    remaining = fraud_total - sum(applied)
+    if remaining > 0:
+        apply_amount_anomaly(rng, transactions, available_indices, user_avg_amount, remaining)
 
-    config = get_db_config()
-    with psycopg2.connect(**config) as connection:
+    with psycopg2.connect(**get_db_config()) as connection:
         insert_transactions(connection, transactions, args.batch_size)
 
     print_summary(transactions)
